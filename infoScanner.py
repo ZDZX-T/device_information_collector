@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 脚本作用：
 竭尽全力地提供被扫描主机的软硬件信息，可以后期不用，不能前期没有
@@ -18,29 +19,47 @@ import json
 import socket
 import subprocess
 import importlib
+import sys
+import codecs  # python2 open用
+from collections import OrderedDict  # 为了兼容python2，python3.7以上自然有序
+import os
 
 PLATFORM = platform.system()  # 运行环境
-output = {
-    'version': 'v0.0.1',  # 软件版本
-    'start_time': '',  # 扫描开始时间，输入系统名称后记录
-    'end_time': '',  # 扫描结束时间
-    'used_time': 0,  # 扫描用时
-    'err_msg': [],  # 扫描中的出错情况
-    'business_name': '',  # 系统名称
-    'host_name': '',  # 主机名称
-    'host_name_other': [],  # 主机别名
-    'ips': [],  # 所有ip
-    'os_type': '',  # 操作系统类型 Windows/Linux
-    'os_uname': [],  # uname信息
-    'arp': {},  # arp表'ip_local':{'ip_dst':{'mac':'', type:''}}
-    'apps': {},  # 已安装应用列表'name':{'version':'', 'path':''}
-}
+output = OrderedDict()
+output['version'] = 'v0.0.1'  # 软件版本
+output['start_time'] = ''  # 扫描开始时间，输入系统名称后记录
+output['end_time'] = ''  # 扫描结束时间
+output['used_time'] = 0  # 扫描用时
+output['err_msg'] = []  # 扫描中的出错情况
+output['business_name'] = ''  # 系统名称
+output['host_name'] = ''  # 主机名称
+output['host_name_other'] = []  # 主机别名
+output['ips'] = []  # 所有ip
+output['os_type'] = ''  # 操作系统类型 Windows/Linux
+output['os_uname'] = []  # uname信息
+output['os_linux_info'] = ''  # platform信息
+output['arp'] = {}  # arp表'ip_local':{'ip_dst':{'mac':'', type:''}}
+output['apps'] = {}  # 已安装应用列表'name':{'version':'', 'path':''}
+PY3 = sys.version_info[0] >= 3
 
 
-def log_error(msg: str):
+def log_error(msg):
     global output
     output['err_msg'].append(msg)
     print(msg)
+
+
+def run_command(command):
+    try:
+        # 执行命令并捕获输出
+        result = subprocess.check_output(command, shell=True, universal_newlines=True)
+        return result.strip()
+    except subprocess.CalledProcessError as e:
+        if 'which' in str(e) and 'returned non-zero exit status 1' in str(e):  # 忽略该报错
+            pass
+        else:
+            log_error("run_command error:{}".format(e))
+        return ''
 
 
 def Win():
@@ -49,7 +68,7 @@ def Win():
     output['host_name'], output['host_name_other'], output['ips'] = socket.gethostbyname_ex(socket.gethostname())
 
     print('获取arp信息')
-    arp_raw = subprocess.getoutput('arp -a')
+    arp_raw = run_command('arp -a')
     try:
         arp_info = {}
         now_ip = ''
@@ -76,7 +95,7 @@ def Win():
             output['ips'].append(ip)
 
     print('获取os信息')
-    output['os_uname'] = platform.uname()
+    output['os_uname'] = list(platform.uname())
 
     print('获取apps')
     winreg = importlib.import_module('winreg')
@@ -121,9 +140,9 @@ def Linux():
     output['host_name'], output['host_name_other'], output['ips'] = socket.gethostbyname_ex(socket.gethostname())
 
     print('获取arp信息')
-    arp_raw = subprocess.getoutput('arp -n')
+    arp_raw = run_command('arp -n')
     arp_info = {}
-    eth_raw = subprocess.getoutput('ifconfig')
+    eth_raw = run_command('ifconfig')
     eth = {}
     for part in eth_raw.split('\n\n'):
         lines = part.split('\n')
@@ -158,12 +177,15 @@ def Linux():
             output['ips'].append(ip)
 
     print('获取os信息')
-    output['os_uname'] = platform.uname()
+    output['os_uname'] = list(platform.uname())
+    output['os_linux_info'] = platform.platform()
 
     print('获取apps')
     installed_programs = {}
+    is_app_get = False  # dpkg或rpm存在则为True
     if subprocess.call("which dpkg", shell=True) == 0:
-        dpkg_info = subprocess.getoutput('dpkg -l').split('\n')
+        is_app_get = True
+        dpkg_info = run_command('dpkg -l').split('\n')
         '''
         dpkg_info期望的开头内容：
         dpkg_info[0] 第一行  期望状态=未知(u)/安装(i)/删除(r)/清除(p)/保持(h)
@@ -177,21 +199,43 @@ def Linux():
         info = dpkg_info[5:]
         for line in info:
             index = line.split()
-            path = subprocess.getoutput(f'which {index[1]}')
+            path = run_command('which {}'.format(index[1]))
             installed_programs[index[1]] = {
                 'version': index[2],
                 'path': path,
                 'state': index[0]
             }
     if subprocess.call("which rpm", shell=True) == 0:
-        pass
-        # TODO  CentOS等使用rpm进行包管理，暂未编写
+        is_app_get = True
+        rpm_info = run_command('rpm -qa').split('\n')
+        '''
+        linux-secure-enhancement-2.3-7.oe2203.linux.arch
+        '''
+        for line in rpm_info:
+            index = line.split('-')
+            i = 0  # 查找谁第一个出现的“.”
+            for i in range(len(index)):
+                if '.' in index[i]:
+                    break
+            name = '-'.join(index[:i])
+            version = '-'.join(index[i:])
+            path = run_command('which {}'.format(name))
+            if name not in installed_programs.keys():
+                installed_programs[name] = {
+                    'version': version,
+                    'path': path
+                }
+    if not is_app_get:
+        log_error('未获取到dpkg或rpm信息')
     output['apps'] = installed_programs
 
 
 if __name__ == '__main__':
     print('当前操作系统为{}\n当前软件版本为{}'.format(PLATFORM, output['version']))
-    output['business_name'] = input('请输入系统名称：')
+    if PY3:
+        output['business_name'] = input('请输入系统名称：')
+    else:
+        output['business_name'] = raw_input('请输入系统名称：')
     start_time = datetime.now()
     output['start_time'] = start_time.strftime('%Y-%m-%d %H:%M:%S')
     output['os_type'] = PLATFORM
@@ -202,13 +246,25 @@ if __name__ == '__main__':
     end_time = datetime.now()
     output['end_time'] = end_time.strftime('%Y-%m-%d %H:%M:%S')
     output['used_time'] = (end_time - start_time).total_seconds()
-    md5 = hashlib.md5(str(output).encode()).hexdigest()
-    output['md5'] = md5
+    md5_short = hashlib.md5(str(output).encode()).hexdigest()
+    output['md5'] = md5_short
     if len(output['ips']) == 0:
         output['ips'] = ['']  # 避免主机没有ip
-    file_name = output['business_name'] + '-' + output['ips'][0] + '-' + start_time.strftime('%Y%m%d_%H%M%S') + '.json'
-    with open(file_name, 'w', encoding='utf=8') as f:
-        json.dump(output, f, indent=4, ensure_ascii=False)
+    temp_file_name = 'temp-' + start_time.strftime('%Y%m%d_%H%M%S') + '.json'
+    if PY3:
+        with open(temp_file_name, 'w', encoding='utf-8') as f:
+            json.dump(output, f, indent=4, ensure_ascii=False)
+    else:
+        with codecs.open(temp_file_name, 'w', encoding='utf-8') as f:
+            json.dump(output, f, indent=4, ensure_ascii=False)
+    with open(temp_file_name, 'rb') as f:
+        data = f.read()
+        md5_short = hashlib.md5(data).hexdigest()[::4]
+    file_name = (output['business_name'] + '-' +
+                 output['ips'][0] + '-' +
+                 start_time.strftime('%Y%m%d_%H%M%S') + '-' +
+                 md5_short + '.json')
+    os.rename(temp_file_name, file_name)
     print('\n生成文件{}'.format(file_name))
     if PLATFORM == 'Windows':
         input('已完成，请按回车退出')

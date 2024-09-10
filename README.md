@@ -3,7 +3,10 @@
 收集目标主机的各种软硬件信息
 ## 使用方法
 ### linux系
-`python3 infoScanner.py`
+推荐python3运行  
+`python3 infoScanner.py`  
+如果没有python3的话，python2也做了适配  
+`python2 infoScanner.py`
 ### windows系
 首先打包为.exe  
 `pyinstaller -F infoScanner.py`  

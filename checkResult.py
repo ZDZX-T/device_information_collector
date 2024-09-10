@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 from colorama import init, Fore
+from collections import OrderedDict
 
 init()
 
@@ -23,12 +24,11 @@ if __name__ == '__main__':
     else:
         paths = [path]
     for path in paths:
-        with open(path, 'r', encoding='utf-8') as f:
-            info = json.load(f)
-            md5 = info['md5']
-            del info['md5']
-            challenge = hashlib.md5(str(info).encode()).hexdigest()
-            if md5 == challenge:
+        with open(path, 'rb') as f:
+            data = f.read()
+            md5_short = hashlib.md5(data).hexdigest()[::4]
+            challenge = path[-13:-5]
+            if md5_short == challenge:
                 print(Fore.GREEN + str(path))
             else:
                 print(Fore.RED + str(path))
