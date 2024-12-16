@@ -5,19 +5,21 @@
 ### linux系
 推荐python3运行  
 `python3 infoScanner.py`  
-如果没有python3的话，python2也做了适配  
-`python2 infoScanner.py`
+~~如果没有python3的话，python2也做了适配  
+`python2 infoScanner.py`~~
 ### windows系
 首先打包为.exe  
 `pyinstaller -F infoScanner.py`  
 然后再在目标主机运行exe文件
 ## 目前可收集内容
 - [x] 主机名称
-- [x] 主机别名
+- [x] uuid，主机识别码，可以用来做主键
+- [x] python版本（用来调整后续脚本兼容性）
 - [x] ip（来自arp信息以及socket信息）
-- [x] 操作系统信息（uname）
+- [x] 操作系统信息（使用uname）
 - [x] arp信息
 - [x] 已安装应用列表
+- [x] 服务
 - [ ] 已安装应用安装的插件列表
   
   
