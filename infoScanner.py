@@ -41,6 +41,7 @@ output = {
     'os_linux_info': '',  # platform信息
     'arp': {},  # arp表'ip_local':{'ip_dst':{'mac':'', type:''}}
     'apps': {},  # 已安装应用列表'name':{'version':'', 'path':''}
+    'service': {},  # 服务列表'service_name':{'display_name（win下才有）':'', 'state':''}
     'log': [],  # 扫描信息记录
     'err_msg': []  # 扫描中的出错情况
 }
@@ -53,7 +54,7 @@ def log_error(msg):  # 将传递的msg输出到命令行和json文件的err_msg�
     print(msg)
 
 
-def run_command(command):  # python3.5
+def run_command(command):
     try:
         # 执行命令并捕获输出
         result = subprocess.run(command, shell=True,
@@ -204,6 +205,18 @@ def Win():
             last_log_num = len(installed_programs)
     output['apps'] = installed_programs
 
+    print('获取service')
+    service = {}
+    service_raw = run_command('sc query').strip()
+    service_block = service_raw.split('\n\n')
+    for block in service_block:
+        lines = block.split('\n')
+        service_name = lines[0][14:].rstrip()
+        display_name = lines[1][14:].rstrip()
+        service_state = lines[3].split(':')[1].strip()
+        service[service_name] = {'display_name': display_name, 'state': service_state}
+    output['service'] = service
+
 
 def Linux():
     print('获取host_name、ips')
@@ -313,6 +326,19 @@ def Linux():
     if not is_app_get:
         log_error('未获取到dpkg或rpm信息')
     output['apps'] = installed_programs
+
+    print('获取service')
+    service = {}
+    service_raw = run_command('systemctl list-units --type=service --all')
+    lines = service_raw.split('\n')[1:]
+    for line in lines:
+        if line == '':  # 主体信息没了，结束
+            break
+        part = line[2:].split(None, 4)
+        service_name = part[0]
+        service_state = part[1] + ';' + part[2] + ';' + part[3]
+        service[service_name] = {'state': service_state}
+    output['service'] = service
 
 
 if __name__ == '__main__':
